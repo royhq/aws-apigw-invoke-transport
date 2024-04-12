@@ -3,23 +3,19 @@ package transport
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"regexp"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway/types"
-	"log/slog"
-	"regexp"
 )
 
-func mapEndpointResources(cli *apigateway.Client, apiID string) (resourceMapping, error) {
+func mapEndpointResources(cli ApiGwClient, apiID string) (resourceMapping, error) {
 	ctx := context.Background()
 
-	api, err := cli.GetRestApi(ctx, &apigateway.GetRestApiInput{RestApiId: aws.String(apiID)})
-	if err != nil {
-		return nil, fmt.Errorf("get rest api error: %w", err)
-	}
-
 	resources, err := cli.GetResources(ctx, &apigateway.GetResourcesInput{
-		RestApiId: aws.String(*api.Id),
+		RestApiId: aws.String(apiID),
 	})
 
 	if err != nil {
@@ -63,16 +59,16 @@ func (mappings resourceMapping) matchResourceID(method, path string) (string, bo
 	return "", false
 }
 
-func (mappings resourceMapping) add(r *types.Resource, method string) error {
+func (mappings resourceMapping) add(r types.Resource, method string) error {
 	var (
 		resourceID = *r.Id
 		path       = *r.Path
 		key        = endpointKey(method, path)
 	)
 
-	regex, regexErr := resourceRegex(key)
-	if regexErr != nil {
-		return regexErr
+	regex, err := resourceRegex(key)
+	if err != nil {
+		return err
 	}
 
 	mappings[key] = resource{id: resourceID, regex: regex}

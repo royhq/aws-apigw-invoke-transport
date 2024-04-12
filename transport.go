@@ -1,11 +1,13 @@
 package transport
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -18,11 +20,19 @@ var (
 	ErrResourceNotFound = errors.New("resource not found")
 )
 
-type Transport struct {
-	apiID   string
-	mapping resourceMapping
+// ApiGwClient is an *apigateway.Client abstraction.
+type ApiGwClient interface {
+	TestInvokeMethod(context.Context, *apigateway.TestInvokeMethodInput, ...func(*apigateway.Options)) (*apigateway.TestInvokeMethodOutput, error)
+	GetResources(context.Context, *apigateway.GetResourcesInput, ...func(*apigateway.Options)) (*apigateway.GetResourcesOutput, error)
+	Options() apigateway.Options
+}
 
-	client  *apigateway.Client
+type Transport struct {
+	apiID         string
+	invokeURLHost string
+	mapping       resourceMapping
+
+	client  ApiGwClient
 	log     *slog.Logger
 	once    *sync.Once
 	initErr error
@@ -38,7 +48,9 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	t.log.DebugContext(ctx, "resources mapped", "resources", t.mapping)
 
 	path := r.URL.Path
-	// TODO: apigw stage
+	if isInvokeURL(r.URL, t.invokeURLHost) {
+		path = removeStagePathPart(path)
+	}
 
 	resourceID, hasResource := t.mapping.matchResourceID(r.Method, path)
 	if !hasResource {
@@ -80,9 +92,11 @@ func (t *Transport) Mappings() map[string]string {
 	return result
 }
 
-func NewTransport(client *apigateway.Client, apiID string, opts ...Option) *Transport {
+func NewTransport(client ApiGwClient, apiID string, opts ...Option) *Transport {
 	t := &Transport{
-		apiID:  apiID,
+		apiID:         apiID,
+		invokeURLHost: invokeURLHost(client, apiID),
+
 		client: client,
 		log:    nopLogger(),
 		once:   new(sync.Once),
@@ -97,7 +111,7 @@ func NewTransport(client *apigateway.Client, apiID string, opts ...Option) *Tran
 	return t
 }
 
-func NewInitializedTransport(client *apigateway.Client, apiID string, opts ...Option) (*Transport, error) {
+func NewInitializedTransport(client ApiGwClient, apiID string, opts ...Option) (*Transport, error) {
 	t := NewTransport(client, apiID, opts...)
 
 	if err := t.initMappings(); err != nil {
@@ -107,10 +121,32 @@ func NewInitializedTransport(client *apigateway.Client, apiID string, opts ...Op
 	return t, nil
 }
 
+func invokeURLHost(c ApiGwClient, apiID string) string {
+	return fmt.Sprintf("%s.execute-api.%s.amazonaws.com", apiID, c.Options().Region)
+}
+
+func isInvokeURL(requestURL *url.URL, invokeHost string) bool {
+	return strings.Contains(requestURL.Host, invokeHost)
+}
+
+// removeStagePathPart removes from URL the stage part (when use default invoke URL).
+//
+// Example:
+//   - original path: /{stage}/api/v1/demo
+//   - will produce:  /api/v1/demo
+func removeStagePathPart(path string) string {
+	split := strings.Split(path, "/")
+	if len(split) > 1 {
+		return "/" + strings.Join(split[2:], "/")
+	}
+
+	return path
+}
+
 func createInvokeInput(r *http.Request, apiID, resourceID, path string) (*apigateway.TestInvokeMethodInput, error) {
 	var body *string
 
-	if r.Body != nil {
+	if r.Body != nil && r.Body != http.NoBody {
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
 			return nil, fmt.Errorf("read request body error: %w", err)
@@ -119,13 +155,17 @@ func createInvokeInput(r *http.Request, apiID, resourceID, path string) (*apigat
 		body = aws.String(string(bodyBytes))
 	}
 
+	if len(r.URL.Query()) > 0 {
+		path += "?" + r.URL.RawQuery
+	}
+
 	input := &apigateway.TestInvokeMethodInput{
 		HttpMethod:          aws.String(r.Method),
 		ResourceId:          aws.String(resourceID),
 		RestApiId:           aws.String(apiID),
 		Body:                body,
 		MultiValueHeaders:   r.Header,
-		PathWithQueryString: aws.String(path + "?" + r.URL.Query().Encode()),
+		PathWithQueryString: aws.String(path),
 	}
 
 	return input, nil

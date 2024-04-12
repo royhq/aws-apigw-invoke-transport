@@ -16,7 +16,7 @@ func invokeInputLogGroup(i *apigateway.TestInvokeMethodInput) slog.Attr {
 		slog.String("resource_id", *i.ResourceId),
 		slog.String("http_method", *i.HttpMethod),
 		slog.String("path_with_query_string", *i.PathWithQueryString),
-		slog.String("body", *i.Body),
+		slog.String("body", bodyLog(i.Body)),
 		slog.Any("headers", i.Headers),
 		slog.Any("multi_headers_value", i.MultiValueHeaders),
 	)
@@ -25,9 +25,17 @@ func invokeInputLogGroup(i *apigateway.TestInvokeMethodInput) slog.Attr {
 func invokeOutputLogGroup(o *apigateway.TestInvokeMethodOutput) slog.Attr {
 	return slog.Group("api_gw_output",
 		slog.Int("status", int(o.Status)),
-		slog.String("body", *o.Body),
+		slog.String("body", bodyLog(o.Body)),
 		slog.Any("headers", o.Headers),
 		slog.Any("multi_headers_value", o.MultiValueHeaders),
 		slog.Int64("latency", o.Latency),
 	)
+}
+
+func bodyLog(content *string) string {
+	if content != nil {
+		return *content
+	}
+
+	return "(no body)"
 }
