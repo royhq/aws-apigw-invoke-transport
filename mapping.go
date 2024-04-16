@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/apigateway/types"
 )
 
+// mapEndpointResources
 func mapEndpointResources(cli ApiGwClient, apiID string) (resourceMapping, error) {
 	ctx := context.Background()
 
@@ -94,6 +95,7 @@ func resourceRegex(key string) (*regexp.Regexp, error) {
 	pattern = "^" + pattern + "$"
 
 	regex, err := regexp.Compile(pattern)
+
 	if err != nil {
 		return nil, fmt.Errorf("could not compile resource regex: %w", err)
 	}
