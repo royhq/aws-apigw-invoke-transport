@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/apigateway/types"
 )
 
-// mapEndpointResources
 func mapEndpointResources(cli ApiGwClient, apiID string) (resourceMapping, error) {
 	ctx := context.Background()
 
