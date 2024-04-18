@@ -54,7 +54,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	resourceID, hasResource := t.mapping.matchResourceID(r.Method, path)
 	if !hasResource {
-		return nil, fmt.Errorf("%s for path %s", ErrResourceNotFound, r.URL.RequestURI())
+		return nil, ErrResourceNotFound
 	}
 
 	input, err := createInvokeInput(r, t.apiID, resourceID, path)

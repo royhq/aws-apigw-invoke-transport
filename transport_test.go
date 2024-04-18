@@ -12,6 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway/types"
 	transport "github.com/rcarrion2/aws-apigw-invoke-transport"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTransport_RoundTrip(t *testing.T) {
@@ -145,51 +147,91 @@ func TestTransport_RoundTrip(t *testing.T) {
 				}, tc.apiGwOut)
 
 				httpReq, err := http.NewRequest(tc.requestMethod, tc.requestURL, tc.requestBody)
-				if err != nil {
-					t.Fatalf("request creation error: %s", err.Error())
-				}
+				require.NoError(t, err, "failed to create request")
 
 				httpResp, err := httpCli.Do(httpReq)
-				if err != nil {
-					t.Fatalf("request do error: %s", err.Error())
-				}
-				defer httpResp.Body.Close()
+				require.NoError(t, err, "failed to make request")
+				defer closeBody(httpResp)
 
-				if httpResp.StatusCode != tc.expectedStatusCode {
-					t.Fatalf("expected status code %d, got %d",
-						tc.expectedStatusCode, httpResp.StatusCode)
-				}
+				assert.Equal(t, tc.expectedStatusCode, httpResp.StatusCode, "status code mismatch")
 
 				resp, _ := io.ReadAll(httpResp.Body)
-				if string(resp) != tc.expectedResponse {
-					t.Fatalf("expected response %s, got %s",
-						tc.expectedResponse, string(resp))
-				}
+				assert.Equal(t, tc.expectedResponse, string(resp), "response body mismatch")
 
-				if httpResp.ContentLength != int64(len(tc.expectedResponse)) {
-					t.Fatalf("expected response length %d, got %d",
-						len(tc.expectedResponse), httpResp.ContentLength)
-				}
-
-				if len(httpResp.Header) != len(tc.expectedHeaders) {
-					t.Fatalf("expected response header length %d, got %d",
-						len(tc.expectedHeaders), len(httpResp.Header))
-				}
+				assert.Equal(t, len(tc.expectedResponse), int(httpResp.ContentLength),
+					"response content length mismatch")
+				assert.Len(t, httpResp.Header, len(tc.expectedHeaders),
+					"response header length mismatch")
 
 				for k := range httpResp.Header {
 					if httpResp.Header.Get(k) != tc.expectedHeaders.Get(k) {
-						t.Fatalf("expected headers %s, got %s",
-							tc.expectedHeaders, httpResp.Header)
+						assert.Equal(t, tc.expectedHeaders.Get(k), httpResp.Header.Get(k),
+							"header mismatch")
 					}
 				}
 			})
 		}
 	})
+
+	t.Run("should return error when resource is not mapped", func(t *testing.T) {
+		testCases := map[string]struct {
+			requestMethod string
+			requestURL    string
+			requestBody   io.Reader
+		}{
+			"not mapped method": {
+				requestMethod: http.MethodPost,
+				requestURL:    "https://custom-domain.com/api/v1/users/john.doe",
+				requestBody:   http.NoBody,
+			},
+			"not mapped resource": {
+				requestMethod: http.MethodGet,
+				requestURL:    "https://custom-domain.com/api/v1/posts",
+				requestBody:   http.NoBody,
+			},
+		}
+
+		for name, tc := range testCases {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				apiGwCli := createApiGatewayClient(apiID)
+				httpCli := &http.Client{Transport: transport.NewTransport(apiGwCli, apiID)}
+
+				httpReq, err := http.NewRequest(tc.requestMethod, tc.requestURL, tc.requestBody)
+				require.NoError(t, err, "failed to create request")
+
+				httpResp, err := httpCli.Do(httpReq)
+				defer closeBody(httpResp)
+
+				assert.Zero(t, httpResp, "expected zero http response")
+				assert.ErrorIs(t, err, transport.ErrResourceNotFound)
+			})
+		}
+	})
+}
+
+func TestTransport_Mappings(t *testing.T) {
+	const apiID = "ugrux6gufp"
+
+	apiGwCli := createApiGatewayClient(apiID)
+	httpTransport, err := transport.NewInitializedTransport(apiGwCli, apiID)
+	require.NoError(t, err, "initialization failed")
+
+	mappings := httpTransport.Mappings()
+
+	expectedMappings := map[string]string{
+		"GET#/api/v1/users/{value}":    "2cb3ff->^GET#/api/v1/users/([^/]+)$",
+		"DELETE#/api/v1/users/{value}": "2cb3ff->^DELETE#/api/v1/users/([^/]+)$",
+		"PATCH#/api/v1/users":          "8143a9->^PATCH#/api/v1/users$",
+		"PUT#/api/v1/users":            "8143a9->^PUT#/api/v1/users$",
+	}
+	assert.Equal(t, expectedMappings, mappings)
 }
 
 func createApiGatewayClient(apiID string) *fakeApiGatewayClient {
-	// /api/v1/users			PUT, PATCH
 	// /apu/v1/users/{value}	GET, DELETE
+	// /api/v1/users			PUT, PATCH
 
 	cli := &fakeApiGatewayClient{
 		restApiID: apiID,
@@ -286,4 +328,10 @@ func (f *fakeApiGatewayClient) GetResources(
 
 func (f *fakeApiGatewayClient) Options() apigateway.Options {
 	return apigateway.Options{Region: f.region}
+}
+
+func closeBody(r *http.Response) {
+	if r != nil && r.Body != nil {
+		_ = r.Body.Close()
+	}
 }
