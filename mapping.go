@@ -91,7 +91,7 @@ func (mappings resourceMapping) LogValue() slog.Value {
 
 func resourceRegex(key string) (*regexp.Regexp, error) {
 	pattern := regexp.QuoteMeta(key)
-	pattern = regexp.MustCompile(`\\{[^/]+\}`).ReplaceAllString(pattern, `([^/]+)`)
+	pattern = regexp.MustCompile(`\\{[^/]+}`).ReplaceAllString(pattern, `([^/]+)`)
 	pattern = "^" + pattern + "$"
 
 	regex, err := regexp.Compile(pattern)
