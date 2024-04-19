@@ -20,13 +20,14 @@ var (
 	ErrResourceNotFound = errors.New("resource not found")
 )
 
-// ApiGwClient is an *apigateway.Client abstraction.
+// ApiGwClient is an [*apigateway.Client] abstraction.
 type ApiGwClient interface {
 	TestInvokeMethod(context.Context, *apigateway.TestInvokeMethodInput, ...func(*apigateway.Options)) (*apigateway.TestInvokeMethodOutput, error)
 	GetResources(context.Context, *apigateway.GetResourcesInput, ...func(*apigateway.Options)) (*apigateway.GetResourcesOutput, error)
 	Options() apigateway.Options
 }
 
+// Transport is a [http.RoundTripper] that map [http.Request] to [*apigateway.TestInvokeMethodInput].
 type Transport struct {
 	apiID         string
 	invokeURLHost string
@@ -82,6 +83,10 @@ func (t *Transport) initMappings() error {
 	return t.initErr
 }
 
+// Mappings returns a representation of all resources mapped.
+//
+// The key is formed by method#path (e.g. POST#/path/to/resource).
+// And the value is a regex to match with endpoint from the HTTP request.
 func (t *Transport) Mappings() map[string]string {
 	result := make(map[string]string, len(t.mapping))
 
