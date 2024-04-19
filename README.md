@@ -64,7 +64,7 @@ func main() {
 	cli := apigateway.NewFromConfig(cfg)
 
 	// create the transport
-	t := transport.NewTransport(cli, "uvx6fpruqg") // AWS API Gateway ID
+	t := transport.NewTransport(cli, "your-api-id")
 
 	// create the http client and pass the transport 
 	httpCli := &http.Client{
