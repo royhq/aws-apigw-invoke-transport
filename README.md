@@ -72,7 +72,7 @@ func main() {
 	}
 
 	// do the request
-	httpResp, err := httpCli.Get("https://any.com/api/v1/users/new_user_1642793267?key=UserName-index")
+	httpResp, err := httpCli.Get("https://any.com/api/v1/users/john.doe?attrs=username")
 	if err != nil {
 		panic(err)
 	}
