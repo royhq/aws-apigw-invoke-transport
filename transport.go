@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -77,7 +78,9 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func (t *Transport) initMappings() error {
 	t.once.Do(func() {
+		t.log.Debug("initializing endpoint mappings")
 		t.mapping, t.initErr = mapEndpointResources(t.client, t.apiID)
+		t.log.Debug("mappings ready")
 	})
 
 	return t.initErr
@@ -120,7 +123,7 @@ func NewInitializedTransport(client ApiGwClient, apiID string, opts ...Option) (
 	t := NewTransport(client, apiID, opts...)
 
 	if err := t.initMappings(); err != nil {
-		return nil, fmt.Errorf("init mappings error: %w", err)
+		return nil, err
 	}
 
 	return t, nil
@@ -152,12 +155,16 @@ func createInvokeInput(r *http.Request, apiID, resourceID, path string) (*apigat
 	var body *string
 
 	if r.Body != nil && r.Body != http.NoBody {
-		bodyBytes, err := io.ReadAll(r.Body)
+		buf := new(bytes.Buffer)
+		tee := io.TeeReader(r.Body, buf)
+
+		bodyBytes, err := io.ReadAll(tee)
 		if err != nil {
 			return nil, fmt.Errorf("read request body error: %w", err)
 		}
 
 		body = aws.String(string(bodyBytes))
+		r.Body = io.NopCloser(buf)
 	}
 
 	if len(r.URL.Query()) > 0 {
